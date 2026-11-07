@@ -1,0 +1,79 @@
+name: Fork build (remote transcription)
+
+# YassinTM fork: builds the Linux ARM64 .rpm/.deb of the remote-transcribe
+# branch (upstream Hex + src/transcription/remote.rs) and publishes it as a
+# GitHub release. dev-agent's hex-fork-sync keeps the branch rebased on the
+# newest upstream release and repairs it when a rebase or this build breaks.
+on:
+  push:
+    branches: [remote-transcribe]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-build
+  cancel-in-progress: true
+
+jobs:
+  linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    env:
+      HEX_LINUX_LABEL: arm64
+      NFPM_ARCHIVE: nfpm_2.48.0_Linux_arm64.tar.gz
+      NFPM_SHA256: a9a75213763783b7669719e505474c748c5ad7dc66591a195619deb50f85c2f4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: fork-arm64
+          cache-on-failure: true
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake pkg-config python3 file jq libasound2-dev \
+            libssl-dev libxkbcommon-x11-dev libx11-xcb-dev libfontconfig1-dev \
+            libfreetype-dev libxcursor-dev libxi-dev libxrandr-dev libopenblas-dev \
+            libvulkan-dev glslc libshaderc-dev
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/nfpm.tar.gz" \
+            "https://github.com/goreleaser/nfpm/releases/download/v2.48.0/$NFPM_ARCHIVE"
+          echo "$NFPM_SHA256  $RUNNER_TEMP/nfpm.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/nfpm.tar.gz" -C "$RUNNER_TEMP/bin" nfpm
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "hex") | .version')
+          echo "HEX_VERSION=$version" >> "$GITHUB_ENV"
+          echo "TAG=remote-v$version-r${{ github.run_number }}" >> "$GITHUB_ENV"
+      - name: Remote module tests
+        env:
+          CC: clang
+          CXX: clang++
+          OPENSSL_NO_VENDOR: 1
+          CARGO_PROFILE_DEV_DEBUG: 0
+        run: cargo test --locked --bin hex remote::
+      - name: Build
+        env:
+          HEX_RELEASE_DIST: ${{ runner.temp }}/dist
+          CARGO_BUILD_JOBS: 4
+          OPENSSL_NO_VENDOR: 1
+          CC: clang
+          CXX: clang++
+        run: |
+          executable=$(scripts/build-linux.sh)
+          scripts/package-linux.sh "$executable" "$HEX_VERSION" "$HEX_LINUX_LABEL" "$HEX_RELEASE_DIST"
+          ls -l "$HEX_RELEASE_DIST"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" \
+            "$RUNNER_TEMP/dist/hex-$HEX_VERSION-linux-arm64.rpm" \
+            "$RUNNER_TEMP/dist/hex-$HEX_VERSION-linux-arm64.deb" \
+            --target "$GITHUB_SHA" --latest \
+            --title "Hex $HEX_VERSION + remote transcription (build ${{ github.run_number }})" \
+            --notes "Upstream Hex $HEX_VERSION with HEX_REMOTE_TRANSCRIBE_URL support. Commit $GITHUB_SHA."
