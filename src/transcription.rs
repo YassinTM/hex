@@ -31,6 +31,8 @@ pub(crate) mod pieces;
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
 pub(crate) mod preparation;
 pub(crate) mod readiness;
+#[cfg(not(target_os = "macos"))]
+pub(crate) mod remote;
 pub(crate) mod service;
 pub(crate) mod speech_detector;
 pub(crate) mod stream;
