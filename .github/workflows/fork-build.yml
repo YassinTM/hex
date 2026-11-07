@@ -55,7 +55,7 @@ jobs:
           CXX: clang++
           OPENSSL_NO_VENDOR: 1
           CARGO_PROFILE_DEV_DEBUG: 0
-        run: cargo test --locked --bin hex remote::
+        run: cargo test --locked --bin hex "remote::"
       - name: Build
         env:
           HEX_RELEASE_DIST: ${{ runner.temp }}/dist
