@@ -670,6 +670,10 @@ impl TranscriptionEngine {
                 // Labs › Skip long pauses, asked as the run starts.
                 let mut clip = whole_clip(clip, crate::labs::skip_pauses());
                 crate::dictation::pad_for_parakeet(&mut clip);
+                // Fork patch: the remote server first, the local model as fallback.
+                if let Some(text) = crate::transcription::remote::try_transcribe(&clip) {
+                    return Ok(text);
+                }
                 model
                     .transcribe(&clip)
                     .map_err(|error| format!("{error:#}"))
