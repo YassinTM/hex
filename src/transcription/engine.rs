@@ -709,6 +709,10 @@ impl TranscriptionEngine {
                 // a trailing pause (#1629).
                 let clip =
                     padded_whole_clip(clip, crate::labs::skip_pauses(), Some(model.model_id()));
+                // Fork patch: the remote server first, the local model as fallback.
+                if let Some(text) = crate::transcription::remote::try_transcribe(&clip) {
+                    return Ok(text);
+                }
                 model
                     .transcribe(&clip)
                     .map_err(|error| format!("{error:#}"))
